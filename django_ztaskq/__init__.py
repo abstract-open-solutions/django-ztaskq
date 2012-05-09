@@ -9,7 +9,3 @@ __contact__ = "drew.h.bryant@gmail.com"
 __homepage__ = "https://github.com/awesomo/django-ztaskq"
 __docformat__ = "markdown"
 __license__ = "BSD (3 clause)"
-
-# try to import dependencies
-# repo: https://github.com/awesomo/django-picklefield
-import picklefield

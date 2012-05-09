@@ -15,6 +15,7 @@ setup(
     name='django-ztaskq',
     packages=['django_ztaskq'],
     install_requires=[
+        'django-picklefield',
         'pyzmq',
     ]
 )
