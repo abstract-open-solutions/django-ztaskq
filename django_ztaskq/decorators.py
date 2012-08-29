@@ -32,6 +32,7 @@ def ztask(memoize=False):
         def _async(*args, **kwargs):
             """Call the function asynchronously by placing it in a task queue.
             """
+            ztaskq_delay = kwargs.pop('ztaskq_delay', 0)
             if memoize: # same func and args will have same taskid
                 taskid = str(uuid.uuid5(uuid.NAMESPACE_URL,
                     '%r-%r-%r' % (function_name, args, kwargs)))
@@ -40,7 +41,9 @@ def ztask(memoize=False):
                 # (almost certainly unique)
                 taskid = str(uuid.uuid4())
             try:
-                socket.send_pyobj((taskid, function_name, args, kwargs))
+                socket.send_pyobj(
+                    (taskid, function_name, args, kwargs, ztaskq_delay)
+                )
             except Exception: # pylint: disable=W0703
                 logger.error('Failed to submit task to ztaskd: '
                     '%s(args=%r, kwargs=%r)' % (function_name, args, kwargs))

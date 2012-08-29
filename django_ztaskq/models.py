@@ -61,11 +61,6 @@ class Task(Model):
             return
         task.run()
 
-    def save(self, *args, **kwargs):
-        if not self.queued:
-            self.queued = utc.localize(datetime.datetime.utcnow())
-        super(Task, self).save(*args, **kwargs)
-
     def mark_running(self):
         self.status = Status.RUNNING
         self.started = utc.localize(datetime.datetime.utcnow())

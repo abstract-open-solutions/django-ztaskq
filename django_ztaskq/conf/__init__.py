@@ -1,6 +1,7 @@
 from .settings import ZTASKD_LOG_LEVEL, ZTASKD_LOG_PATH
 import logging
 
+
 def _get_logger(logfile=ZTASKD_LOG_PATH, loglevel=ZTASKD_LOG_LEVEL):
     LEVELS = {
         'debug': logging.DEBUG,
@@ -9,18 +10,21 @@ def _get_logger(logfile=ZTASKD_LOG_PATH, loglevel=ZTASKD_LOG_LEVEL):
         'error': logging.ERROR,
         'critical': logging.CRITICAL
     }
-    
-    logger = logging.getLogger('ztaskd')
-    logger.setLevel(LEVELS[loglevel.lower()])
+
+    logger_ = logging.getLogger('ztaskd')
+    logger_.setLevel(LEVELS[loglevel.lower()])
     if logfile:
         handler = logging.FileHandler(logfile)
     else:
         handler = logging.StreamHandler()
-    
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    
-    return logger
+    logger_.addHandler(handler)
+
+    return logger_
+
 
 logger = _get_logger()
