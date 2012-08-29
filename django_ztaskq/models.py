@@ -4,6 +4,7 @@ import sys
 import traceback
 import pickle
 import json
+from pytz import utc
 
 from picklefield import PickledObjectField
 from django.db.models import *
@@ -45,7 +46,7 @@ class Task(Model):
     
     def save(self, *args, **kwargs):
         if not self.queued:
-            self.queued = datetime.datetime.utcnow()
+            self.queued = utc.localize(datetime.datetime.utcnow())
         super(Task, self).save(*args, **kwargs)
     
     class Meta:
@@ -62,7 +63,7 @@ class Task(Model):
     
     def mark_running(self):
         self.status = Status.RUNNING
-        self.started = datetime.datetime.utcnow()
+        self.started = utc.localize(datetime.datetime.utcnow())
         
         self.save()
     
@@ -79,7 +80,7 @@ class Task(Model):
         self.status = Status.COMPLETED if success else Status.FAILED
         if not success:
             self.error = error_msg
-        self.finished = datetime.datetime.utcnow()
+        self.finished = utc.localize(datetime.datetime.utcnow())
         
         self.save()
     
