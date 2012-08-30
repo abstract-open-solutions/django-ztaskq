@@ -4,7 +4,6 @@ from pytz import utc
 from picklefield import PickledObjectField
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Model, CharField, TextField, DateTimeField
-from .conf import logger
 
 
 class Status(object):
@@ -53,13 +52,13 @@ class Task(Model):
         db_table = 'django_ztaskq_task'
 
     @classmethod
-    def run_task(cls, task_id):
+    def run_task(cls, task_id, logger):
         try:
             task = cls.objects.get(pk=task_id)
         except ObjectDoesNotExist, e:
             logger.info('Could not get task with id %s:\n%s' % (task_id, e))
             return
-        task.run()
+        task.run(logger)
 
     def mark_running(self):
         self.status = Status.RUNNING
@@ -84,7 +83,7 @@ class Task(Model):
 
         self.save()
 
-    def run(self):
+    def run(self, logger):
 
         function_name = self.function_name
         args = self.args

@@ -9,8 +9,11 @@ from zmq.core.device import device
 from zmq.core.error import ZMQError
 from django.core.management.base import BaseCommand
 from ...models import Task, Status
-from ...conf import settings, logger
+from ...conf import settings, get_logger
 from ...context import shared_context as context
+
+
+logger = get_logger('ztaskd')
 
 
 def queue(task_pk):
@@ -167,10 +170,13 @@ class Command(BaseCommand):
             callable_fn()
 
     def handle(self, *args, **options): # pylint: disable=W0613
-        logger.info(
-            'Server starting on %s.' % settings.ZTASKD_URL
-        )
-        atexit.register(self.shutdown)
-        self._on_load()
-        while True:
-            self.recv_and_enqueue()
+        try:
+            logger.info(
+                'Server starting on %s.' % settings.ZTASKD_URL
+            )
+            atexit.register(self.shutdown)
+            self._on_load()
+            while True:
+                self.recv_and_enqueue()
+        except KeyboardInterrupt:
+            raise SystemExit()

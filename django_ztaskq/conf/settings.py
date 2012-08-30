@@ -7,3 +7,5 @@ ZTASK_INTERNAL_QUEUE_URL = getattr(settings, 'ZTASK_INTERNAL_QUEUE_URL',
 ZTASKD_ON_LOAD = getattr(settings, 'ZTASKD_ON_LOAD', ())
 ZTASKD_LOG_LEVEL = getattr(settings, 'ZTASKD_LOG_LEVEL', 'info')
 ZTASKD_LOG_PATH = getattr(settings, 'ZTASKD_LOG_PATH', None)
+ZTASKD_LOG_MAXBYTES = getattr(settings, 'ZTASKD_LOG_MAXBYTES', 36864)
+ZTASKD_LOG_BACKUP = getattr(settings, 'ZTASKD_LOG_BACKUP', 4)
