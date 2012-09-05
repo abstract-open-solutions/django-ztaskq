@@ -1,5 +1,10 @@
 import datetime
 import sys
+import traceback
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
 from pytz import utc
 from picklefield import PickledObjectField
 from django.core.exceptions import ObjectDoesNotExist
@@ -108,14 +113,13 @@ class Task(Model):
                     function, args, kwargs))
             return_value = function(*args, **kwargs)
             logger.info('Successfully finished the function call.')
-        except Exception:
-            traceback = 'no traceback available'
-            if hasattr(sys, 'last_traceback'):
-                traceback = sys.last_traceback
-            self.mark_complete(success=False, error_msg=traceback)
+        except Exception: # pylint: disable=W0703
+            stream = StringIO()
+            traceback.print_exc(None, stream)
+            self.mark_complete(success=False, error_msg=stream.getvalue())
             logger.error('Error calling %s. Details:\n%s' % (
-                    function_name, traceback))
-            raise
+                    function_name, stream.getvalue()))
+            sys.exc_clear()
         else:
             self.return_value = return_value
             self.save()
