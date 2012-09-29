@@ -33,7 +33,9 @@ def ztask(memoize=False):
             """Call the function asynchronously by placing it in a task queue.
             """
             ztaskq_delay = kwargs.pop('ztaskq_delay', 0)
-            if memoize: # same func and args will have same taskid
+            if memoize and ztaskq_delay == 0:
+                # same func and args will have same taskid,
+                # but if delay is present then memoize won't work.
                 taskid = str(uuid.uuid5(uuid.NAMESPACE_URL,
                     '%r-%r-%r' % (function_name, args, kwargs)))
             else:

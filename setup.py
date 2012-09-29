@@ -17,6 +17,7 @@ setup(
     install_requires=[
         'django-picklefield',
         'pyzmq',
-        'pytz'
+        'pytz',
+        'mock'
     ]
 )
