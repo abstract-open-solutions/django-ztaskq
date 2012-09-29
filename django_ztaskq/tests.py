@@ -2,9 +2,10 @@ import logging
 from StringIO import StringIO
 from uuid import uuid4
 from multiprocessing import Process, Queue
-from datetime import datetime
+from datetime import datetime, timedelta
 from pytz import utc
-from zmq import PUSH, PULL, Context
+from zmq import PUSH, PULL, NOBLOCK, Context
+from zmq.core.error import ZMQError
 from mock import patch, MagicMock
 from django.test import TestCase
 from .conf import settings
@@ -213,13 +214,6 @@ class WrappedCommand(Process):
     command_args = tuple()
     command_options = {}
 
-    def __init__(self, *args, **kwargs):
-        attrs = {
-            'queue': kwargs.pop('queue'),
-        }
-        super(WrappedCommand, self).__init__(*args, **kwargs)
-        self.__dict__.update(attrs)
-
     def on_load(self):
         pass
 
@@ -234,6 +228,13 @@ class WrappedWorker(WrappedCommand):
 
     command_name = 'workerd'
     command_args = ('test-worker-1',)
+
+    def __init__(self, *args, **kwargs):
+        attrs = {
+            'queue': kwargs.pop('queue'),
+        }
+        super(WrappedWorker, self).__init__(*args, **kwargs)
+        self.__dict__.update(attrs)
 
     def on_load(self):
         queue = self.queue
@@ -288,6 +289,74 @@ class WorkerTest(TestCase):
         self.queue.close()
 
 
+class WrappedDispatcher(WrappedCommand):
+
+    command_name = 'ztaskd'
+
+    def __init__(self, *args, **kwargs):
+        attrs = {
+            'queue': kwargs.pop('queue'),
+            'enqueued_tasks': kwargs.pop('enqueued_tasks', []),
+        }
+        super(WrappedDispatcher, self).__init__(*args, **kwargs)
+        self.__dict__.update(attrs)
+
+    def on_load(self):
+        queue = self.queue
+        patch(
+            'django_ztaskq.management.commands.ztaskd.context',
+            new=Context()
+        ).start()
+        patch(
+            'django_ztaskq.management.commands.ztaskd.logger',
+        ).start()
+        # pylint: disable=W0613
+        def objects_get_or_create(*args, **kwargs):
+            task = MagicMock()
+            queue.put({ k: v for k, v in kwargs.items() })
+            task.pk = kwargs['taskid']
+            for name, value in kwargs.items():
+                setattr(task, name, value)
+            queue.close()
+            return (task, True)
+        MockedTask = patch(
+            'django_ztaskq.management.commands.ztaskd.Task').start()
+        MockedTask.objects = MagicMock()
+        MockedTask.objects.get_or_create = MagicMock(
+            side_effect=objects_get_or_create)
+        MockedTask.objects.filter = MagicMock(
+            return_value=self.enqueued_tasks
+        )
+
+
+class wrapped_dispatcher(object):
+
+    def __init__(self, enqueued=None):
+        self.queue = Queue()
+        kwargs = {
+            'queue': self.queue
+        }
+        if enqueued:
+            kwargs['enqueued_tasks'] = enqueued
+        self.dispatcher = WrappedDispatcher(**kwargs)
+        self.context = None
+        self.sockets = {}
+
+    def __enter__(self):
+        self.dispatcher.start()
+        self.context = Context()
+        self.sockets['in'] = self.context.socket(PUSH)
+        self.sockets['out'] = self.context.socket(PULL)
+        self.sockets['in'].connect(settings.ZTASKD_URL)
+        self.sockets['out'].connect(settings.ZTASK_WORKER_URL)
+        return (self.queue, self.sockets['in'], self.sockets['out'])
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.dispatcher.terminate()
+        self.context.destroy()
+        self.queue.close()
+
+
 class DispatcherTest(TestCase):
     """Ensures the dispatcher "dispatches" correctly
     """
@@ -295,15 +364,93 @@ class DispatcherTest(TestCase):
     def test_dispatch(self):
         """Tests dispatching a task
         """
+        uuid = str(uuid4())
+        with wrapped_dispatcher() as (queue, in_, out):
+            in_.send_pyobj(
+                (uuid, 'django_ztaskq.tests.hello_world', ("Joe",), {}, 0)
+            )
+            task = queue.get()
+            self.assertEqual(task['taskid'], uuid)
+            self.assertEqual(task['function_name'],
+                             'django_ztaskq.tests.hello_world')
+            self.assertEqual(task['args'], ("Joe",))
+            self.assertEqual(task['kwargs'], {})
+            now = utc.localize(datetime.utcnow())
+            self.assertLessEqual(task['queued'], now)
+            task_id, = out.recv_pyobj()
+            self.assertEqual(
+                task_id,
+                uuid
+            )
 
     def test_delayed(self):
         """Tests dispatching a delayed task
         """
-
-    def test_onload(self):
-        """Tests onload calls
-        """
+        uuid = str(uuid4())
+        with wrapped_dispatcher() as (queue, in_, out):
+            enqueued = utc.localize(datetime.utcnow() + timedelta(seconds=3))
+            in_.send_pyobj(
+                (uuid, 'django_ztaskq.tests.hello_world', ("Joe",), {}, 3)
+            )
+            task = queue.get()
+            self.assertEqual(task['taskid'], uuid)
+            self.assertEqual(task['function_name'],
+                             'django_ztaskq.tests.hello_world')
+            self.assertEqual(task['args'], ("Joe",))
+            self.assertEqual(task['kwargs'], {})
+            self.assertGreaterEqual(task['queued'], enqueued)
+            task_id, = out.recv_pyobj()
+            got = utc.localize(datetime.utcnow())
+            self.assertGreaterEqual(got, enqueued)
+            self.assertEqual(
+                task_id,
+                uuid
+            )
 
     def test_leftover(self):
         """Tests enqueueing leftovers
+        """
+        enqueued = []
+        enqueued.append(MagicMock())
+        enqueued[-1].pk = str(uuid4())
+        enqueued[-1].queued = utc.localize(
+            datetime.utcnow() - timedelta(hours=1)
+        )
+        enqueued.append(MagicMock())
+        enqueued[-1].pk = str(uuid4())
+        enqueued[-1].queued = utc.localize(
+            datetime.utcnow() - timedelta(seconds=1)
+        )
+        enqueued.append(MagicMock())
+        enqueued[-1].pk = str(uuid4())
+        enqueued[-1].queued = utc.localize(
+            datetime.utcnow() + timedelta(seconds=5)
+        )
+        timings = []
+        with wrapped_dispatcher(enqueued) as (__, __, out):
+            task_id, = out.recv_pyobj()
+            timings.append(utc.localize(datetime.utcnow()))
+            self.assertEqual(
+                task_id,
+                enqueued[0].pk
+            )
+            task_id, = out.recv_pyobj()
+            timings.append(utc.localize(datetime.utcnow()))
+            self.assertEqual(
+                task_id,
+                enqueued[1].pk
+            )
+            task_id, = out.recv_pyobj()
+            timings.append(utc.localize(datetime.utcnow()))
+            self.assertEqual(
+                task_id,
+                enqueued[2].pk
+            )
+            self.assertAlmostEqual(timings[0], timings[1],
+                                   delta=timedelta(seconds=2))
+            self.assertNotAlmostEqual(timings[1], timings[2],
+                                      delta=timedelta(seconds=2))
+
+    def test_onload(self):
+        """Tests onload calls
         """
