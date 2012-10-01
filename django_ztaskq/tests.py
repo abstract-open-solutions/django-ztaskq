@@ -297,12 +297,19 @@ class WrappedDispatcher(WrappedCommand):
         attrs = {
             'queue': kwargs.pop('queue'),
             'enqueued_tasks': kwargs.pop('enqueued_tasks', []),
+            'on_daemon_load': kwargs.pop('on_daemon_load', []),
         }
         super(WrappedDispatcher, self).__init__(*args, **kwargs)
         self.__dict__.update(attrs)
 
     def on_load(self):
         queue = self.queue
+        if len(self.on_daemon_load) > 0:
+            patch(
+                ('django_ztaskq.management.commands.ztaskd.settings.'
+                 'ZTASKD_ON_LOAD'),
+                new=self.on_daemon_load
+            ).start()
         patch(
             'django_ztaskq.management.commands.ztaskd.context',
             new=Context()
@@ -331,13 +338,15 @@ class WrappedDispatcher(WrappedCommand):
 
 class wrapped_dispatcher(object):
 
-    def __init__(self, enqueued=None):
+    def __init__(self, enqueued=None, on_load=None):
         self.queue = Queue()
         kwargs = {
             'queue': self.queue
         }
         if enqueued:
             kwargs['enqueued_tasks'] = enqueued
+        if on_load:
+            kwargs['on_daemon_load'] = on_load
         self.dispatcher = WrappedDispatcher(**kwargs)
         self.context = None
         self.sockets = {}
@@ -355,6 +364,14 @@ class wrapped_dispatcher(object):
         self.dispatcher.terminate()
         self.context.destroy()
         self.queue.close()
+
+
+def dummy_onload():
+    context = Context()
+    socket = context.socket(PUSH)
+    socket.connect('tcp://127.0.0.1:5560')
+    socket.send_pyobj(True)
+    context.destroy()
 
 
 class DispatcherTest(TestCase):
@@ -454,3 +471,9 @@ class DispatcherTest(TestCase):
     def test_onload(self):
         """Tests onload calls
         """
+        context = Context()
+        socket = context.socket(PULL)
+        socket.bind('tcp://127.0.0.1:5560')
+        with wrapped_dispatcher(on_load=['django_ztaskq.tests.dummy_onload']) \
+                as __:
+            self.assertTrue(socket.recv_pyobj())
